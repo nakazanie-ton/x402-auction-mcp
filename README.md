@@ -1,438 +1,85 @@
 # x402 Auction MCP Server
 
-A **simple**, **clean** MCP server that enables AI agents to participate in x402 auctions.
+A TypeScript MCP server that wraps the Palette Finance x402 auction API. It exposes auction information, bid creation, payment status, and recent bids to clients using the MCP stdio transport.
 
-**🎯 Built with KISS & SOLID principles | 343 lines of code | 4 API endpoints**
+The server returns structured data for the client to present. Auction availability, pricing, allocation, and payment instructions come from the upstream service.
 
-## Why This Project?
+## Build from source
 
-✅ **KISS** - Simple, readable code without unnecessary complexity  
-✅ **SOLID** - Clean architecture with single responsibility  
-✅ **Type-Safe** - Full TypeScript with proper types  
-✅ **Well-Documented** - Clear examples and architecture docs  
-✅ **Production-Ready** - Proper error handling and validation  
-
-## Features
-
-- **Get Auction Info**: Check current auction status, price, total raised, and available supply
-- **Create Bids**: Place bids in the auction (1-100 TON per wallet)
-- **Check Bid Status**: Monitor your bid's payment status and estimated token allocation
-- **View Recent Bids**: See the latest completed bids with details
-
-## Installation
+Requirements: Node.js and npm.
 
 ```bash
-npm install
-```
-
-## Build
-
-```bash
+git clone https://github.com/nakazanie-ton/x402-auction-mcp.git
+cd x402-auction-mcp
+npm ci
 npm run build
 ```
 
-## Usage
-
-### Running the Server
-
-```bash
-npm start
-```
-
-Or for development with auto-rebuild:
-
-```bash
-npm run dev
-```
-
-### Troubleshooting
-
-If you experience issues with multiple instances or stuck processes:
-
-```bash
-# Clean up any running instances
-npm run cleanup
-```
-
-This will safely terminate any existing x402-auction-mcp processes.
-
-### Configuring with Claude Desktop
-
-Add this to your Claude Desktop configuration file:
-
-**MacOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-
-#### Option 1: Using npm package (Recommended if published)
-
-```json
-{
-  "mcpServers": {
-    "x402-auction": {
-      "command": "x402-auction-mcp"
-    }
-  }
-}
-```
-
-#### Option 2: Local development
+Configure your MCP client with the absolute path to the compiled entry point:
 
 ```json
 {
   "mcpServers": {
     "x402-auction": {
       "command": "node",
-      "args": ["/path/to/x402-auction-mcp/build/index.js"]
+      "args": ["/absolute/path/to/x402-auction-mcp/build/index.js"]
     }
   }
 }
 ```
 
-Make sure to update the path to match your actual installation location.
+Use the client's configuration format and restart or reload its MCP connection as needed. This source-based setup does not depend on an npm registry release.
 
-#### Option 3: Using npm link (for development)
+## Available tools
 
-```bash
-# In the x402-auction-mcp directory
-npm link
+| Tool | Parameters | Purpose |
+| --- | --- | --- |
+| `get_auction_info` | None | Read auction status, pricing, and fundraising progress. |
+| `create_auction_bid` | `ton_amount`, `wallet` | Create a bid or return an existing bid's state and payment instructions. |
+| `check_bid_status` | `bid_id` | Read the state of a specific bid. |
+| `get_my_bid` | `wallet` | Look up a bid by the participant's wallet address. |
+| `get_recent_bids` | Optional `limit` | List recent bids; default 20, maximum 100. |
 
-# Then in Claude Desktop config:
-```json
-{
-  "mcpServers": {
-    "x402-auction": {
-      "command": "x402-auction-mcp"
-    }
-  }
-}
-```
+The current implementation validates bid amounts from 1 to 100 TON. Wallet fields identify the participant; they are **not the payment destination**.
 
-## Available Tools
+## Bid and payment flow
 
-### 1. `get_auction_info`
+1. Read `get_auction_info` to check the current auction state.
+2. Use `get_my_bid` to check for an existing bid.
+3. Create a bid only when the user intends to participate.
+4. If payment is required, present the returned `payment.recipient`, amount, required comment, expiry, and wallet link.
+5. The user reviews and completes payment in their wallet. This server does not hold wallet keys or sign the payment.
+6. Use `check_bid_status` or `get_my_bid` to read subsequent payment, allocation, or refund state.
 
-Get current auction status and parameters.
+Payment expiry and auction outcomes must be read from the response. Do not assume that an auction is active or that a past price, allocation, or refund policy still applies.
 
-**Parameters**: None
+## API integration
 
-**Example Response**:
-```json
-{
-  "status": "active",
-  "current_price": 0.5,
-  "total_raised": 1500.0,
-  "available_supply": 100000
-}
-```
+The base API URL is defined in [src/constants.ts](src/constants.ts). The client uses the auction info, bid, my-bid, and bids endpoints, including HTTP 402 payment-required responses.
 
-### 2. `create_auction_bid`
-
-Create a bid in the auction. Returns payment instructions (HTTP 402).
-
-**Parameters**:
-- `ton_amount` (number, required): Amount to bid (1-100 TON)
-- `wallet` (string, required): Your TON wallet address
-
-**Important Notes**:
-- One bid per wallet
-- Payment expires in 180 seconds
-- No refunds after payment
-
-**Example Response**:
-```json
-{
-  "bid_id": "abc123",
-  "payment_address": "EQD...",
-  "amount": 5,
-  "expires_at": "2025-10-28T12:03:00Z",
-  "message": "Send 5 TON to address with bid_id as comment"
-}
-```
-
-### 3. `get_my_bid`
-
-Check the status of your bid.
-
-**Parameters**:
-- `wallet` (string, required): Your TON wallet address
-
-**Example Response**:
-```json
-{
-  "bid_id": "abc123",
-  "wallet": "UQBlen...",
-  "ton_amount": 5,
-  "payment_status": "confirmed",
-  "estimated_tokens": 10000,
-  "price": 0.5,
-  "timestamp": "2025-10-28T12:00:00Z"
-}
-```
-
-### 4. `get_recent_bids`
-
-Get list of recent completed bids.
-
-**Parameters**:
-- `limit` (number, optional): Number of bids to return (default: 20, max: 100)
-
-**Example Response**:
-```json
-{
-  "bids": [
-    {
-      "bidder": "UQBlen...",
-      "amount": 5,
-      "price": 0.5,
-      "timestamp": "2025-10-28T12:00:00Z"
-    }
-  ],
-  "total": 150
-}
-```
-
-## API Endpoints
-
-This MCP server interfaces with the following x402 auction API endpoints:
-
-- `GET /api/auction/info` - Auction status
-- `GET /api/auction/bid` - Create bid (returns 402)
-- `GET /api/auction/my-bid` - Check bid status
-- `GET /api/auction/bids` - Recent bids list
-
-## Response Codes
-
-- `200 OK` - Success
-- `402 Payment Required` - Bid created, payment needed
-- `409 Conflict` - Bid already exists for this wallet
-- `410 Gone` - Auction closed
-- `422 Invalid Amount` - Invalid bid amount
+The implementation handles auction closure, missing bids, validation failures, and rate-limit responses. Availability and compatibility with the live upstream API are not verified by this README.
 
 ## Development
 
-The project structure:
-
-```
-x402agent/
-├── src/
-│   ├── index.ts       # MCP server (routing)
-│   ├── handlers.ts    # Business logic & validation
-│   ├── api.ts         # HTTP client
-│   ├── types.ts       # TypeScript types
-│   └── constants.ts   # Configuration
-├── build/             # Compiled JavaScript
-├── docs/              # Documentation
-└── package.json
+```bash
+npm test
+npm run build
+npm start
 ```
 
-**SOLID Architecture** - Each file has a single, clear responsibility.
+`npm run dev` compiles and starts the server. It does not watch files.
 
-## Error Handling
+| Path | Responsibility |
+| --- | --- |
+| [src/index.ts](src/index.ts) | MCP tool schemas and stdio entry point |
+| [src/handlers.ts](src/handlers.ts) | Validation and bid/payment state handling |
+| [src/api.ts](src/api.ts) | HTTP API client |
+| [src/types.ts](src/types.ts) | Request and response types |
+| [src/constants.ts](src/constants.ts) | API URL and limits |
+| [src/__tests__](src/__tests__) | Jest tests |
 
-The server includes comprehensive error handling for:
-- Invalid bid amounts
-- Invalid wallet addresses
-- API errors (conflict, gone, invalid amount)
-- Network errors
-- Payment timeouts
-
-Errors are returned in a structured format with error codes and messages.
+See [TEST_GUIDE.md](TEST_GUIDE.md) for additional test notes and [PUBLISHING.md](PUBLISHING.md) for package publishing instructions.
 
 ## License
 
-MIT
-
-## API Reference
-
-Base URL: `https://x402.palette.finance/api/auction`
-
-For more information about the x402 auction, visit [Palette Finance](https://x402.palette.finance).
-
-## Installation
-
-### For End Users
-
-**Option 1: Install from npm (when published)**
-```bash
-npm install -g x402-auction-mcp
-```
-
-**Option 2: Install from GitHub**
-```bash
-git clone https://github.com/ilyaqznetsow/x402-auction-mcp.git
-cd x402-auction-mcp
-npm install
-npm run build
-```
-
----
-
-## Usage in Different Environments
-
-### 1. Claude Desktop
-
-**Config file location:**
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-
-**If installed globally via npm:**
-```json
-{
-  "mcpServers": {
-    "x402-auction": {
-      "command": "x402-auction-mcp"
-    }
-  }
-}
-```
-
-**If installed locally:**
-```json
-{
-  "mcpServers": {
-    "x402-auction": {
-      "command": "node",
-      "args": ["/absolute/path/to/x402-auction-mcp/build/index.js"]
-    }
-  }
-}
-```
-
-Then restart Claude Desktop.
-
----
-
-### 2. Cursor IDE
-
-Cursor supports MCP servers! Configure in Cursor's settings:
-
-**Settings → MCP Servers** or create/edit the config file:
-- macOS: `~/Library/Application Support/Cursor/mcp_config.json`
-- Windows: `%APPDATA%\Cursor\mcp_config.json`
-- Linux: `~/.config/Cursor/mcp_config.json`
-
-```json
-{
-  "mcpServers": {
-    "x402-auction": {
-      "command": "npx",
-      "args": ["x402-auction-mcp"]
-    }
-  }
-}
-```
-
-Or with local installation:
-```json
-{
-  "mcpServers": {
-    "x402-auction": {
-      "command": "node",
-      "args": ["/absolute/path/to/x402-auction-mcp/build/index.js"]
-    }
-  }
-}
-```
-
-Restart Cursor, then use the MCP tools in your AI chat!
-
----
-
-### 3. Cline (VS Code Extension)
-
-Cline supports MCP servers via settings:
-
-1. Open VS Code Settings (Cmd/Ctrl + ,)
-2. Search for "Cline MCP"
-3. Add MCP server configuration:
-
-```json
-{
-  "cline.mcpServers": {
-    "x402-auction": {
-      "command": "x402-auction-mcp"
-    }
-  }
-}
-```
-
-Or edit `.vscode/settings.json` in your workspace.
-
----
-
-### 4. Programmatic Usage (Node.js)
-
-You can also use the MCP server programmatically in your own applications:
-
-```javascript
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-
-// Connect to the MCP server
-const transport = new StdioClientTransport({
-  command: 'x402-auction-mcp'
-});
-
-const client = new Client({
-  name: 'my-app',
-  version: '1.0.0'
-}, {
-  capabilities: {}
-});
-
-await client.connect(transport);
-
-// List available tools
-const tools = await client.listTools();
-console.log(tools);
-
-// Call a tool
-const result = await client.callTool({
-  name: 'get_auction_info',
-  arguments: {}
-});
-
-console.log(result);
-```
-
----
-
-### 5. Any MCP-Compatible Client
-
-The server uses the standard MCP stdio protocol, so it works with any client that supports MCP:
-
-**Basic usage:**
-```bash
-# Start the server (it reads from stdin, writes to stdout)
-x402-auction-mcp
-
-# Or with node directly:
-node /path/to/build/index.js
-```
-
-**Communication format:** JSON-RPC 2.0 over stdio
-
-Example request:
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "tools/call",
-  "params": {
-    "name": "get_auction_info",
-    "arguments": {}
-  }
-}
-```
-
----
-
-## For Developers: Publishing Your Fork
-
-See [PUBLISHING.md](PUBLISHING.md) for detailed instructions on:
-- Publishing to npm
-- Publishing to GitHub
-- Versioning and updates
-- Marketing your MCP server
-
+[MIT](LICENSE).
